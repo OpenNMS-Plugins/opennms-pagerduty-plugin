@@ -1,4 +1,4 @@
-# OpenNMS PagerDuty Plugin [![CircleCI](https://circleci.com/gh/OpenNMS/opennms-pagerduty-plugin.svg?style=svg)](https://circleci.com/gh/OpenNMS/opennms-pagerduty-plugin)
+# OpenNMS PagerDuty Plugin [![CircleCI](https://circleci.com/gh/OpenNMS-Plugins/opennms-pagerduty-plugin.svg?style=svg)](https://circleci.com/gh/OpenNMS-Plugins/opennms-pagerduty-plugin)
 
 
 ![arch](assets/pd-alerts.png "PagerDuty Integration")
