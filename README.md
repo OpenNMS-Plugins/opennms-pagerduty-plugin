@@ -20,7 +20,7 @@ This plugin is compatible with OpenNMS Horizon 26.1.3 or higher.
 Download the latest release with
 ```shell
 mkdir pager-duty-plugin && cd pager-duty-plugin
-wget https://github.com/OpenNMS/opennms-pagerduty-plugin/releases/latest/download/opennms-pagerduty-plugin.tar.gz
+wget https://github.com/OpenNMS-Plugins/opennms-pagerduty-plugin/releases/latest/download/opennms-pagerduty-plugin.tar.gz
 ```
 
 Extract the archive and verify the checksum
