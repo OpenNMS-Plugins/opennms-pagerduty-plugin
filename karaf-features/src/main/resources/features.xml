@@ -4,7 +4,7 @@
     <feature name="opennms-plugins-pagerduty" description="OpenNMS :: Plugins :: PagerDuty" version="${project.version}">
         <feature dependency="true">aries-blueprint</feature>
         <feature dependency="true">shell</feature>
-        <feature version="${opennms.api.version}" dependency="true">opennms-integration-api</feature>
+        <feature version="[2.0.0,3.0.0)" dependency="true">opennms-integration-api</feature>
         <feature version="${okhttp.version}" dependency="true">okhttp</feature>
         <feature version="${guava.version}" dependency="true">guava</feature>
         <feature version="${jackson.version}" dependency="true">jackson</feature>
@@ -26,7 +26,7 @@
 
     <feature name="jackson" description="jackson" version="${jackson.version}">
         <bundle dependency="true">mvn:com.fasterxml.jackson.core/jackson-databind/${jackson.version}</bundle>
-        <bundle dependency="true">mvn:com.fasterxml.jackson.core/jackson-annotations/${jackson.version}</bundle>
+        <bundle dependency="true">mvn:com.fasterxml.jackson.core/jackson-annotations/${jackson-annotations.version}</bundle>
         <bundle dependency="true">mvn:com.fasterxml.jackson.core/jackson-core/${jackson.version}</bundle>
         <bundle dependency="true">mvn:com.fasterxml.jackson.datatype/jackson-datatype-jdk8/${jackson.version}</bundle>
     </feature>
