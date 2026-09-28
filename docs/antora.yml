@@ -1,9 +1,10 @@
 name: pagerduty
-version: '1.0.0-SNAPSHOT'
+version: '1.0.1-SNAPSHOT'
 title: PagerDuty Plugin
 asciidoc:
   attributes:
-    full-display-version: '1.0.0-SNAPSHOT'
+    full-display-version: '1.0.1-SNAPSHOT'
+    release-version: '1.0.0'
     plugin-name: 'PagerDuty Plugin'
 nav:
   - modules/ROOT/nav.adoc

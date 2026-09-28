@@ -33,3 +33,4 @@ java/bin/
 # Antora artifacts
 /build/
 /public/
+assembly/kar/.DS_Store

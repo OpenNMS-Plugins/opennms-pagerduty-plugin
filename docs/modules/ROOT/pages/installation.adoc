@@ -44,9 +44,9 @@ git clone http://github.com/opennms/opennms-pagerduty-plugin
 ----
 
 === Checkout a release tag:
-[source, console]
+[source, console, subs="attributes"]
 ----
-git checkout v0.1.4
+git checkout v{release-version}
 ----
 
 === Compile:

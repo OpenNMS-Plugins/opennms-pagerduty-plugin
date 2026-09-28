@@ -15,6 +15,7 @@ MINOR_VERSION       := $(shell echo $(RELEASE_VERSION) | cut -d. -f2)
 PATCH_VERSION       := $(shell echo $(RELEASE_VERSION) | cut -d. -f3)
 SNAPSHOT_VERSION    := $(MAJOR_VERSION).$(MINOR_VERSION).$(shell expr $(PATCH_VERSION) + 1)-SNAPSHOT
 RELEASE_LOG         := $(ARTIFACTS_DIR)/release.log
+ANTORA_YML          := ./docs/antora.yml
 OK                  := "[ 👍 ]"
 
 .PHONY help:
@@ -94,6 +95,9 @@ release: deps-build
 	@echo -n "💅 Set Maven release version:   "
 	@mvn versions:set -DnewVersion=$(RELEASE_VERSION) >>$(RELEASE_LOG) 2>&1
 	@echo "$(OK)"
+	@echo -n "📖 Set Antora release version:  "
+	@sed -i.bak -E "s/^version: .*/version: '$(RELEASE_VERSION)'/; s/^( *full-display-version:).*/\1 '$(RELEASE_VERSION)'/; s/^( *release-version:).*/\1 '$(RELEASE_VERSION)'/" $(ANTORA_YML) && rm $(ANTORA_YML).bak
+	@echo "$(OK)"
 	@echo -n "👮‍♀️ Validate build:              "
 	@$(MAKE) pagerduty-plugin >>$(RELEASE_LOG) 2>&1
 	@echo "$(OK)"
@@ -105,6 +109,9 @@ release: deps-build
 	@echo "$(OK)"
 	@echo -n "⬆️ Set Maven snapshot version:  "
 	@mvn versions:set -DnewVersion=$(SNAPSHOT_VERSION) >>$(RELEASE_LOG) 2>&1
+	@echo "$(OK)"
+	@echo -n "📖 Set Antora snapshot version: "
+	@sed -i.bak -E "s/^version: .*/version: '$(SNAPSHOT_VERSION)'/; s/^( *full-display-version:).*/\1 '$(SNAPSHOT_VERSION)'/" $(ANTORA_YML) && rm $(ANTORA_YML).bak
 	@echo "$(OK)"
 	@echo -n "🎁 Git commit snapshot release: "
 	@git commit --signoff -am "release: PagerDuty Plugin version $(SNAPSHOT_VERSION)" >>$(RELEASE_LOG) 2>&1

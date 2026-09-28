@@ -14,7 +14,11 @@ executors:
 workflows:
   build-deploy:
     jobs:
-      - build
+      - build:
+          filters:
+            tags:
+              only:
+                - /^v.*/
       - publish-github-release:
           context:
             - github-releases
@@ -68,6 +72,5 @@ jobs:
           command: |
             export GITHUB_TOKEN="${GH_TOKEN}"
             mkdir github-release
-            cp target/artifacts/opennms-pagerduty-plugin.sha256 github-release
-            cp target/artifacts/opennms-pagerduty-plugin.tar.gz github-release
-            ghr -r ${CIRCLE_PROJECT_REPONAME} $(cat target/artifacts/pom-version.txt) github-release
+            cp target/artifacts/opennms-pagerduty-plugin-*.kar github-release
+            ghr -r ${CIRCLE_PROJECT_REPONAME} ${CIRCLE_TAG} github-release
