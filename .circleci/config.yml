@@ -7,9 +7,12 @@ executors:
       - image: cimg/openjdk:17.0.14
         environment:
           MAVEN_OPTS: -Xmx1g
-  go-executor:
+  release-executor:
     docker:
-      - image: cimg/go:1.23
+      - image: cimg/base:stable
+        environment:
+          GH_CLI_VERSION: 2.101.0
+          GH_CLI_SHA256: 9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8
 
 workflows:
   build-deploy:
@@ -59,18 +62,25 @@ jobs:
             - project
 
   publish-github-release:
-    executor: go-executor
+    executor: release-executor
     working_directory: ~/project
     steps:
       - attach_workspace:
           at: ~/
       - run:
-          name: Install ghr tool to create GitHub releases and upload artifacts
-          command: go install github.com/tcnksm/ghr@latest
+          name: Install GitHub CLI to create GitHub releases and upload artifacts
+          command: |
+            curl -fsSLo /tmp/gh.tar.gz "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
+            echo "${GH_CLI_SHA256}  /tmp/gh.tar.gz" | sha256sum -c -
+            mkdir -p ~/bin
+            tar -xzf /tmp/gh.tar.gz -C /tmp
+            mv "/tmp/gh_${GH_CLI_VERSION}_linux_amd64/bin/gh" ~/bin/gh
+            ~/bin/gh --version
       - run:
           name: Publish artifacts as GitHub release
           command: |
-            export GITHUB_TOKEN="${GH_TOKEN}"
-            mkdir github-release
-            cp target/artifacts/opennms-pagerduty-plugin-*.kar github-release
-            ghr -r ${CIRCLE_PROJECT_REPONAME} ${CIRCLE_TAG} github-release
+            ~/bin/gh release create "${CIRCLE_TAG}" target/artifacts/opennms-pagerduty-plugin-*.kar \
+              --repo "${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}" \
+              --title "${CIRCLE_TAG}" \
+              --verify-tag \
+              --generate-notes
