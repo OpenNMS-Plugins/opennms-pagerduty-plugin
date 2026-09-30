@@ -48,8 +48,10 @@ import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import org.apache.commons.jexl3.JexlBuilder;
 import org.apache.commons.jexl3.JexlContext;
 import org.apache.commons.jexl3.JexlEngine;
+import org.apache.commons.jexl3.JexlException;
 import org.apache.commons.jexl3.JexlExpression;
 import org.apache.commons.jexl3.MapContext;
+import org.apache.commons.jexl3.introspection.JexlPermissions;
 import org.opennms.integration.api.v1.alarms.AlarmLifecycleListener;
 import org.opennms.integration.api.v1.config.events.AlarmType;
 import org.opennms.integration.api.v1.events.EventForwarder;
@@ -80,6 +82,14 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
     private static final int SUMMARY_MAX_LENGTH = 1024;
     private static final ObjectMapper mapper = new ObjectMapper();
 
+    /**
+     * JEXL 3.3+ restricts introspection by default, which hides every property of the alarm
+     * from filter expressions. Allow the OpenNMS Integration API model classes explicitly.
+     */
+    private static final JexlEngine JEXL = new JexlBuilder()
+            .permissions(JexlPermissions.RESTRICTED.compose("org.opennms.integration.api.v1.model.*"))
+            .create();
+
     private EventForwarder eventForwarder;
     private final PDClient pdClient;
     private final PagerDutyPluginConfig pluginConfig;
@@ -103,8 +113,7 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         executor.submit(new TaskConsumer());
 
         if (!Strings.isNullOrEmpty(serviceConfig.getJexlFilter())) {
-            JexlEngine jexl = new JexlBuilder().create();
-            jexlFilterExpression = jexl.createExpression(serviceConfig.getJexlFilter());
+            jexlFilterExpression = createExpression(serviceConfig.getJexlFilter());
         } else {
             jexlFilterExpression = null;
         }
@@ -340,10 +349,25 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         executor.shutdownNow();
     }
 
+    public static JexlExpression createExpression(String expression) {
+        return JEXL.createExpression(expression);
+    }
+
     public static boolean testAlarmAgainstExpression(JexlExpression expression, Alarm alarm) {
         final JexlContext jc = new MapContext();
         jc.set("alarm", alarm);
-        return (boolean)expression.evaluate(jc);
+        try {
+            final Object result = expression.evaluate(jc);
+            if (result instanceof Boolean) {
+                return (Boolean) result;
+            }
+            LOG.warn("JEXL expression '{}' did not evaluate to a boolean for alarm with reduction-key: {}. Got: {}",
+                    expression.getSourceText(), alarm.getReductionKey(), result);
+        } catch (JexlException e) {
+            LOG.warn("Failed to evaluate JEXL expression '{}' for alarm with reduction-key: {}",
+                    expression.getSourceText(), alarm.getReductionKey(), e);
+        }
+        return false;
     }
 
     private class TaskConsumer implements Runnable {

@@ -16,7 +16,7 @@
         <jackson-annotations.version>2.21</jackson-annotations.version>
         <java.version>17</java.version>
         <jaxrs.version>2.1.1</jaxrs.version>
-        <jexl.version>3.1</jexl.version>
+        <jexl.version>3.3</jexl.version>
         <junit.version>4.13.2</junit.version>
         <karaf.version>4.3.10</karaf.version>
         <log4j.version>2.23.1</log4j.version>

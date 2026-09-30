@@ -29,8 +29,6 @@
 package org.opennms.integrations.pagerduty.shell;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import org.apache.commons.jexl3.JexlBuilder;
-import org.apache.commons.jexl3.JexlEngine;
 import org.apache.commons.jexl3.JexlExpression;
 import org.apache.karaf.shell.api.action.Action;
 import org.apache.karaf.shell.api.action.Argument;
@@ -68,8 +66,7 @@ public class JEXLEval implements Action {
 
     @Override
     public Object execute() throws JsonProcessingException {
-        JexlEngine jexl = new JexlBuilder().create();
-        JexlExpression e = jexl.createExpression(expression);
+        JexlExpression e = PagerDutyForwarder.createExpression(expression);
 
         boolean alarmIdMatched = false;
         int numAlarmsProcessed = 0;
