@@ -48,7 +48,6 @@ import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import org.apache.commons.jexl3.JexlBuilder;
 import org.apache.commons.jexl3.JexlContext;
 import org.apache.commons.jexl3.JexlEngine;
-import org.apache.commons.jexl3.JexlException;
 import org.apache.commons.jexl3.JexlExpression;
 import org.apache.commons.jexl3.MapContext;
 import org.apache.commons.jexl3.introspection.JexlPermissions;
@@ -122,25 +121,43 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         }
     }
 
-    private boolean shouldProcess(Alarm alarm) {
+    private enum FilterResult {
+        MATCHED,
+        FILTERED,
+        ERROR
+    }
+
+    private FilterResult shouldProcess(Alarm alarm) {
         if (alarm.getReductionKey().startsWith(PD_UEI_PREFIX)) {
             // Never forward alarms that the plugin itself creates
-            return false;
+            return FilterResult.FILTERED;
         }
         if (jexlFilterExpression == null) {
             LOG.info("No JEXL expression found, not evaluating alarm.");
-            return false;
+            return FilterResult.FILTERED;
         }
-        return testAlarmAgainstExpression(jexlFilterExpression, alarm);
+        try {
+            return evaluateExpression(jexlFilterExpression, alarm) ? FilterResult.MATCHED : FilterResult.FILTERED;
+        } catch (FilterEvaluationException e) {
+            logFilterError(jexlFilterExpression, alarm, e);
+            return FilterResult.ERROR;
+        }
     }
 
     @Override
     public void handleNewOrUpdatedAlarm(Alarm alarm) {
-        if (!shouldProcess(alarm)) {
-            // Remember the alarms that were filtered & not processed, so that we can skip
-            // the deletes as well when we get callbacks for these
-            alarmIdsFiltered.add(alarm.getId());
-            return;
+        switch (shouldProcess(alarm)) {
+            case FILTERED:
+                // Remember the alarms that were filtered & not processed, so that we can skip
+                // the deletes as well when we get callbacks for these
+                alarmIdsFiltered.add(alarm.getId());
+                return;
+            case ERROR:
+                // Skip this update, but leave the filtered state alone so that a later delete
+                // still resolves an incident that was already triggered for this alarm
+                return;
+            case MATCHED:
+                break;
         }
         // We may of previously filtered the alarm, but decided to process it now
         alarmIdsFiltered.remove(alarm.getId());
@@ -356,21 +373,46 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         return JEXL.createExpression(expression);
     }
 
-    public static boolean testAlarmAgainstExpression(JexlExpression expression, Alarm alarm) {
+    /**
+     * Evaluates the expression against the given alarm.
+     *
+     * @throws FilterEvaluationException if the expression fails or does not evaluate to a boolean
+     */
+    public static boolean evaluateExpression(JexlExpression expression, Alarm alarm) {
         final JexlContext jc = new MapContext();
         jc.set("alarm", alarm);
+        final Object result;
         try {
-            final Object result = expression.evaluate(jc);
-            if (result instanceof Boolean) {
-                return (Boolean) result;
-            }
-            LOG.warn("JEXL expression '{}' did not evaluate to a boolean for alarm with reduction-key: {}. Got: {}",
-                    expression.getSourceText(), alarm.getReductionKey(), result);
-        } catch (JexlException e) {
-            LOG.warn("Failed to evaluate JEXL expression '{}' for alarm with reduction-key: {}",
-                    expression.getSourceText(), alarm.getReductionKey(), e);
+            result = expression.evaluate(jc);
+        } catch (RuntimeException e) {
+            // JexlException for most failures, but others such as PatternSyntaxException escape as-is
+            throw new FilterEvaluationException(e.getMessage(), e);
         }
-        return false;
+        if (result instanceof Boolean) {
+            return (Boolean) result;
+        }
+        throw new FilterEvaluationException("Expression did not evaluate to a boolean, got: " + result, null);
+    }
+
+    public static boolean testAlarmAgainstExpression(JexlExpression expression, Alarm alarm) {
+        try {
+            return evaluateExpression(expression, alarm);
+        } catch (FilterEvaluationException e) {
+            logFilterError(expression, alarm, e);
+            return false;
+        }
+    }
+
+    private static void logFilterError(JexlExpression expression, Alarm alarm, FilterEvaluationException e) {
+        LOG.warn("Failed to evaluate JEXL expression '{}' for alarm with reduction-key: {}: {}",
+                expression.getSourceText(), alarm.getReductionKey(), e.getMessage());
+        LOG.debug("JEXL evaluation failure for alarm with reduction-key: {}", alarm.getReductionKey(), e);
+    }
+
+    public static class FilterEvaluationException extends RuntimeException {
+        public FilterEvaluationException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
     private class TaskConsumer implements Runnable {

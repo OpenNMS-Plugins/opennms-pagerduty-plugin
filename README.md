@@ -111,6 +111,14 @@ admin@opennms> property-set jexlFilter '"Servers" =~ alarm.node.categories and "
 
 This limits to only alarms for certain categories of nodes that have a resolution. Some alarms have no "clearing" event, so they would stay present in PagerDuty forever unless manual action is taken, or certain special configuration is used within PagerDuty to expire the events.
 
+#### Matching on an IP address
+
+```shell
+admin@opennms> property-set jexlFilter 'alarm.node.ipInterfaces[0].ipAddress.toString() == "/10.0.0.1"'
+```
+
+JEXL does not allow access to the methods of `java.net.InetAddress`, so compare its string form instead, which starts with a `/`.
+
 ### Hold-Down Timer (Delayed Notifications)
 
 Some alarms may quickly resolve themselves, especially occasional brief outages from the OpenNMS service pollers.

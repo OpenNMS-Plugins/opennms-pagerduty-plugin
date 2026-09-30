@@ -30,7 +30,10 @@ package org.opennms.integrations.pagerduty;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Arrays;
 
 import org.junit.Test;
@@ -40,6 +43,7 @@ import org.opennms.integration.api.v1.model.Node;
 import org.opennms.integration.api.v1.model.Severity;
 import org.opennms.integration.api.v1.model.immutables.ImmutableAlarm;
 import org.opennms.integration.api.v1.model.immutables.ImmutableDatabaseEvent;
+import org.opennms.integration.api.v1.model.immutables.ImmutableIpInterface;
 import org.opennms.integration.api.v1.model.immutables.ImmutableNode;
 
 /**
@@ -86,17 +90,52 @@ public class JexlFilterTest {
     }
 
     @Test
+    public void canMatchOnIpAddress() throws UnknownHostException {
+        Node node = ImmutableNode.newBuilder()
+                .setId(1)
+                .setForeignSource("Requisition-A")
+                .setForeignId("1")
+                .setLabel("node1")
+                .setLocation("Default")
+                .addIpInterface(ImmutableIpInterface.newBuilder()
+                        .setIpAddress(InetAddress.getByName("10.0.0.1"))
+                        .build())
+                .build();
+        Alarm alarm = ImmutableAlarm.newBuilder()
+                .setId(1)
+                .setReductionKey("uei.opennms.org/nodes/nodeDown::1")
+                .setSeverity(Severity.MAJOR)
+                .setNode(node)
+                .build();
+        // JEXL denies introspection of java.net, so InetAddress can only be compared through toString()
+        assertTrue(matches("alarm.node.ipInterfaces[0].ipAddress.toString() == \"/10.0.0.1\"", alarm));
+        assertTrue(matches("alarm.node.ipInterfaces[0].ipAddress.toString() =~ \"/10\\\\.0\\\\..*\"", alarm));
+    }
+
+    @Test
     public void doesNotMatchOnErrors() {
         Alarm alarmWithoutNode = ImmutableAlarm.newBuilder()
                 .setId(2)
                 .setReductionKey("uei.opennms.org/generic/traps/SNMP_Cold_Start")
                 .setSeverity(Severity.CRITICAL)
                 .build();
+        // Navigating through a null node is not an error, it simply does not match
         assertFalse(matches("alarm.node.foreignSource == \"Requisition-A\"", alarmWithoutNode));
-        // Non-boolean result
-        assertFalse(matches("alarm.reductionKey", alarmWithoutNode));
-        // Unknown property
-        assertFalse(matches("alarm.noSuchProperty == \"x\"", alarmWithoutNode));
+
+        assertEvaluationFails("alarm.reductionKey", alarmWithoutNode);
+        assertEvaluationFails("alarm.noSuchProperty == \"x\"", alarmWithoutNode);
+        // Invalid regular expressions fail with a PatternSyntaxException rather than a JexlException
+        assertEvaluationFails("alarm.reductionKey =~ \"[\"", alarmWithoutNode);
+    }
+
+    private static void assertEvaluationFails(String expression, Alarm alarm) {
+        assertFalse(matches(expression, alarm));
+        try {
+            PagerDutyForwarder.evaluateExpression(PagerDutyForwarder.createExpression(expression), alarm);
+            fail("Expected evaluation of '" + expression + "' to fail");
+        } catch (PagerDutyForwarder.FilterEvaluationException e) {
+            // expected
+        }
     }
 
     private static boolean matches(String expression, Alarm alarm) {

@@ -72,6 +72,8 @@ public class JEXLEval implements Action {
         int numAlarmsProcessed = 0;
         boolean didMatchAtLeastOneAlarm = false;
         int matchedAlarmCount = 0;
+        int failedAlarmCount = 0;
+        String firstFailure = null;
 
         if (toPayload && onlyCount) {
             System.out.println("Options '-p' and '-c' are mutually exclusive, ignoring '-p' ");
@@ -79,12 +81,26 @@ public class JEXLEval implements Action {
 
         for (Alarm alarm : alarmDao.getAlarms()) {
             numAlarmsProcessed++;
-            boolean didMatch = PagerDutyForwarder.testAlarmAgainstExpression(e, alarm);
+            boolean didMatch = false;
+            String failure = null;
+            try {
+                didMatch = PagerDutyForwarder.evaluateExpression(e, alarm);
+            } catch (PagerDutyForwarder.FilterEvaluationException ex) {
+                failure = ex.getMessage();
+                failedAlarmCount++;
+                if (firstFailure == null) {
+                    firstFailure = String.format("alarm ID '%d': %s", alarm.getId(), failure);
+                }
+            }
 
             if (alarmId != null && alarm.getId().equals(alarmId)) {
                 System.out.printf("Alarm with ID '%d' has reduction key: '%s'\n", alarmId, alarm.getReductionKey());
                 alarmIdMatched = true;
-                System.out.printf("Expression evaluates: %s\n", didMatch);
+                if (failure != null) {
+                    System.out.printf("Expression failed to evaluate: %s\n", failure);
+                } else {
+                    System.out.printf("Expression evaluates: %s\n", didMatch);
+                }
             }
             if (didMatch) {
                 if (!onlyCount && alarmId == null) {
@@ -103,6 +119,10 @@ public class JEXLEval implements Action {
             }
         }
 
+        if (failedAlarmCount > 0) {
+            System.out.printf("\nExpression failed to evaluate for %d alarms (out of %d alarms.) First failure, %s\n",
+                    failedAlarmCount, numAlarmsProcessed, firstFailure);
+        }
         if (numAlarmsProcessed < 1) {
             System.out.println("\nNo alarms present.\n");
         } else if (!didMatchAtLeastOneAlarm) {
