@@ -34,10 +34,12 @@ import static org.junit.Assert.assertTrue;
 import java.util.Arrays;
 
 import org.junit.Test;
+import org.opennms.integration.api.v1.config.events.AlarmType;
 import org.opennms.integration.api.v1.model.Alarm;
 import org.opennms.integration.api.v1.model.Node;
 import org.opennms.integration.api.v1.model.Severity;
 import org.opennms.integration.api.v1.model.immutables.ImmutableAlarm;
+import org.opennms.integration.api.v1.model.immutables.ImmutableDatabaseEvent;
 import org.opennms.integration.api.v1.model.immutables.ImmutableNode;
 
 /**
@@ -60,6 +62,9 @@ public class JexlFilterTest {
         assertTrue(matches("alarm.node.foreignSource =~ [\"Requisition-A\", \"Requisition-B\"]", alarm));
         assertTrue(matches("\"Servers\" =~ alarm.node.categories", alarm));
         assertFalse(matches("alarm.node.foreignSource == \"Requisition-B\"", alarm));
+        assertTrue(matches("alarm.type == \"PROBLEM\"", alarm));
+        assertTrue(matches("alarm.type.id == 1", alarm));
+        assertTrue(matches("alarm.lastEvent.uei == \"uei.opennms.org/nodes/nodeDown\"", alarm));
     }
 
     @Test
@@ -111,6 +116,11 @@ public class JexlFilterTest {
                 .setId(1)
                 .setReductionKey("uei.opennms.org/nodes/nodeDown::1")
                 .setSeverity(severity)
+                .setType(AlarmType.PROBLEM)
+                .setLastEvent(ImmutableDatabaseEvent.newBuilder()
+                        .setId(1L)
+                        .setUei("uei.opennms.org/nodes/nodeDown")
+                        .build())
                 .setNode(node)
                 .build();
     }

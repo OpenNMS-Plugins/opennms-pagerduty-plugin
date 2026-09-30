@@ -104,7 +104,7 @@ This leverages the `!~` operator to mean "the alarm reduction key does not match
 
 [source, console]
 ----
-admin@opennms> property-set jexlFilter '"Servers" =~ alarm.node.categories and "Test" =~ alarm.node.categories and alarm.type.name == "PROBLEM"'
+admin@opennms> property-set jexlFilter '"Servers" =~ alarm.node.categories and "Test" =~ alarm.node.categories and alarm.type == "PROBLEM"'
 ----
 
 This limits to only alarms for certain categories of nodes that have a resolution.

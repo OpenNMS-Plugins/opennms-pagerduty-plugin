@@ -84,10 +84,13 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
 
     /**
      * JEXL 3.3+ restricts introspection by default, which hides every property of the alarm
-     * from filter expressions. Allow the OpenNMS Integration API model classes explicitly.
+     * from filter expressions. Allow the OpenNMS Integration API model classes explicitly,
+     * including AlarmType which lives in the config.events package.
      */
     private static final JexlEngine JEXL = new JexlBuilder()
-            .permissions(JexlPermissions.RESTRICTED.compose("org.opennms.integration.api.v1.model.*"))
+            .permissions(JexlPermissions.RESTRICTED.compose(
+                    "org.opennms.integration.api.v1.model.*",
+                    "org.opennms.integration.api.v1.config.events.*"))
             .create();
 
     private EventForwarder eventForwarder;

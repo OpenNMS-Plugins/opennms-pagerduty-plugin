@@ -106,7 +106,7 @@ This leverages the `!~` operator to mean "the alarm reduction key does not match
 #### Only Alarms That Can Auto-Resolve
 
 ```shell
-admin@opennms> property-set jexlFilter '"Servers" =~ alarm.node.categories and "Test" =~ alarm.node.categories and alarm.type.name == "PROBLEM"'
+admin@opennms> property-set jexlFilter '"Servers" =~ alarm.node.categories and "Test" =~ alarm.node.categories and alarm.type == "PROBLEM"'
 ```
 
 This limits to only alarms for certain categories of nodes that have a resolution. Some alarms have no "clearing" event, so they would stay present in PagerDuty forever unless manual action is taken, or certain special configuration is used within PagerDuty to expire the events.
@@ -131,7 +131,7 @@ FactoryPid:     org.opennms.plugins.pagerduty.services
 BundleLocation: ?
 Properties:
    felix.fileinstall.filename = file:/opt/opennms/etc/org.opennms.plugins.pagerduty.services-test-servers.cfg
-   jexlFilter = "Servers" =~ alarm.node.categories and "Test" =~ alarm.node.categories and alarm.type.name == "PROBLEM"
+   jexlFilter = "Servers" =~ alarm.node.categories and "Test" =~ alarm.node.categories and alarm.type == "PROBLEM"
    routingKey = YOUR-INTEGRATION-KEY-HERE
    service.factoryPid = org.opennms.plugins.pagerduty.services
    service.pid = org.opennms.plugins.pagerduty.services.bbc99bb4-bc56-4d56-b35c-14066b6e2dcf
