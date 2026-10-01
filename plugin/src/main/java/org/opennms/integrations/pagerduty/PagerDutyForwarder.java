@@ -50,6 +50,7 @@ import org.apache.commons.jexl3.JexlContext;
 import org.apache.commons.jexl3.JexlEngine;
 import org.apache.commons.jexl3.JexlExpression;
 import org.apache.commons.jexl3.MapContext;
+import org.apache.commons.jexl3.introspection.JexlPermissions;
 import org.opennms.integration.api.v1.alarms.AlarmLifecycleListener;
 import org.opennms.integration.api.v1.config.events.AlarmType;
 import org.opennms.integration.api.v1.events.EventForwarder;
@@ -80,6 +81,17 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
     private static final int SUMMARY_MAX_LENGTH = 1024;
     private static final ObjectMapper mapper = new ObjectMapper();
 
+    /**
+     * JEXL 3.3+ restricts introspection by default, which hides every property of the alarm
+     * from filter expressions. Allow the OpenNMS Integration API model classes explicitly,
+     * including AlarmType which lives in the config.events package.
+     */
+    private static final JexlEngine JEXL = new JexlBuilder()
+            .permissions(JexlPermissions.RESTRICTED.compose(
+                    "org.opennms.integration.api.v1.model.*",
+                    "org.opennms.integration.api.v1.config.events.*"))
+            .create();
+
     private EventForwarder eventForwarder;
     private final PDClient pdClient;
     private final PagerDutyPluginConfig pluginConfig;
@@ -103,32 +115,49 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         executor.submit(new TaskConsumer());
 
         if (!Strings.isNullOrEmpty(serviceConfig.getJexlFilter())) {
-            JexlEngine jexl = new JexlBuilder().create();
-            jexlFilterExpression = jexl.createExpression(serviceConfig.getJexlFilter());
+            jexlFilterExpression = createExpression(serviceConfig.getJexlFilter());
         } else {
             jexlFilterExpression = null;
         }
     }
 
-    private boolean shouldProcess(Alarm alarm) {
+    private enum FilterResult {
+        MATCHED,
+        FILTERED,
+        ERROR
+    }
+
+    private FilterResult shouldProcess(Alarm alarm) {
         if (alarm.getReductionKey().startsWith(PD_UEI_PREFIX)) {
             // Never forward alarms that the plugin itself creates
-            return false;
+            return FilterResult.FILTERED;
         }
         if (jexlFilterExpression == null) {
             LOG.info("No JEXL expression found, not evaluating alarm.");
-            return false;
+            return FilterResult.FILTERED;
         }
-        return testAlarmAgainstExpression(jexlFilterExpression, alarm);
+        try {
+            return evaluateExpression(jexlFilterExpression, alarm) ? FilterResult.MATCHED : FilterResult.FILTERED;
+        } catch (FilterEvaluationException e) {
+            logFilterError(jexlFilterExpression, alarm, e);
+            return FilterResult.ERROR;
+        }
     }
 
     @Override
     public void handleNewOrUpdatedAlarm(Alarm alarm) {
-        if (!shouldProcess(alarm)) {
-            // Remember the alarms that were filtered & not processed, so that we can skip
-            // the deletes as well when we get callbacks for these
-            alarmIdsFiltered.add(alarm.getId());
-            return;
+        switch (shouldProcess(alarm)) {
+            case FILTERED:
+                // Remember the alarms that were filtered & not processed, so that we can skip
+                // the deletes as well when we get callbacks for these
+                alarmIdsFiltered.add(alarm.getId());
+                return;
+            case ERROR:
+                // Skip this update, but leave the filtered state alone so that a later delete
+                // still resolves an incident that was already triggered for this alarm
+                return;
+            case MATCHED:
+                break;
         }
         // We may of previously filtered the alarm, but decided to process it now
         alarmIdsFiltered.remove(alarm.getId());
@@ -340,10 +369,50 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         executor.shutdownNow();
     }
 
-    public static boolean testAlarmAgainstExpression(JexlExpression expression, Alarm alarm) {
+    public static JexlExpression createExpression(String expression) {
+        return JEXL.createExpression(expression);
+    }
+
+    /**
+     * Evaluates the expression against the given alarm.
+     *
+     * @throws FilterEvaluationException if the expression fails or does not evaluate to a boolean
+     */
+    public static boolean evaluateExpression(JexlExpression expression, Alarm alarm) {
         final JexlContext jc = new MapContext();
         jc.set("alarm", alarm);
-        return (boolean)expression.evaluate(jc);
+        final Object result;
+        try {
+            result = expression.evaluate(jc);
+        } catch (RuntimeException e) {
+            // JexlException for most failures, but others such as PatternSyntaxException escape as-is
+            throw new FilterEvaluationException(e.getMessage(), e);
+        }
+        if (result instanceof Boolean) {
+            return (Boolean) result;
+        }
+        throw new FilterEvaluationException("Expression did not evaluate to a boolean, got: " + result, null);
+    }
+
+    public static boolean testAlarmAgainstExpression(JexlExpression expression, Alarm alarm) {
+        try {
+            return evaluateExpression(expression, alarm);
+        } catch (FilterEvaluationException e) {
+            logFilterError(expression, alarm, e);
+            return false;
+        }
+    }
+
+    private static void logFilterError(JexlExpression expression, Alarm alarm, FilterEvaluationException e) {
+        LOG.warn("Failed to evaluate JEXL expression '{}' for alarm with reduction-key: {}: {}",
+                expression.getSourceText(), alarm.getReductionKey(), e.getMessage());
+        LOG.debug("JEXL evaluation failure for alarm with reduction-key: {}", alarm.getReductionKey(), e);
+    }
+
+    public static class FilterEvaluationException extends RuntimeException {
+        public FilterEvaluationException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
     private class TaskConsumer implements Runnable {

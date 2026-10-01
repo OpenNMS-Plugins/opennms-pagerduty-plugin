@@ -104,8 +104,17 @@ This leverages the `!~` operator to mean "the alarm reduction key does not match
 
 [source, console]
 ----
-admin@opennms> property-set jexlFilter '"Servers" =~ alarm.node.categories and "Test" =~ alarm.node.categories and alarm.type.name == "PROBLEM"'
+admin@opennms> property-set jexlFilter '"Servers" =~ alarm.node.categories and "Test" =~ alarm.node.categories and alarm.type == "PROBLEM"'
 ----
 
 This limits to only alarms for certain categories of nodes that have a resolution.
 Some alarms have no "clearing" event, so they would stay present in PagerDuty forever unless manual action is taken, or certain special configuration is used within PagerDuty to expire the events.
+
+=== Matching on an IP address
+
+[source, console]
+----
+admin@opennms> property-set jexlFilter 'alarm.node.ipInterfaces[0].ipAddress.toString() == "/10.0.0.1"'
+----
+
+JEXL does not allow access to the methods of `java.net.InetAddress`, so compare its string form instead, which starts with a `/`.
