@@ -1,9 +1,9 @@
 name: pagerduty
-version: '1.0.1'
+version: '1.0.2-SNAPSHOT'
 title: PagerDuty Plugin
 asciidoc:
   attributes:
-    full-display-version: '1.0.1'
+    full-display-version: '1.0.2-SNAPSHOT'
     release-version: '1.0.1'
     plugin-name: 'PagerDuty Plugin'
 nav:
