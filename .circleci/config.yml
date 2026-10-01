@@ -79,6 +79,8 @@ jobs:
       - run:
           name: Publish artifacts as GitHub release
           command: |
+            export GH_TOKEN="${OPENNMS_PLUGINS_GH_TOKEN:?OPENNMS_PLUGINS_GH_TOKEN is not set}"
+            ~/bin/gh auth status --hostname github.com
             ~/bin/gh release create "${CIRCLE_TAG}" target/artifacts/opennms-pagerduty-plugin-*.kar \
               --repo "${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}" \
               --title "${CIRCLE_TAG}" \
