@@ -31,8 +31,16 @@ package org.opennms.integrations.pagerduty;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasEntry;
+import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.startsWith;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.net.InetAddress;
@@ -46,9 +54,11 @@ import java.util.stream.Collectors;
 
 import org.junit.After;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.opennms.integration.api.v1.config.events.AlarmType;
 import org.opennms.integration.api.v1.events.EventForwarder;
 import org.opennms.integration.api.v1.model.Alarm;
+import org.opennms.integration.api.v1.model.InMemoryEvent;
 import org.opennms.integration.api.v1.model.Severity;
 import org.opennms.integration.api.v1.model.immutables.ImmutableAlarm;
 import org.opennms.integration.api.v1.model.immutables.ImmutableDatabaseEvent;
@@ -57,12 +67,14 @@ import org.opennms.integration.api.v1.model.immutables.ImmutableIpInterface;
 import org.opennms.integration.api.v1.model.immutables.ImmutableNode;
 import org.opennms.pagerduty.client.api.PDClient;
 import org.opennms.pagerduty.client.api.PDEvent;
+import org.opennms.pagerduty.client.api.PDEventPayload;
 
 public class PagerDutyForwarderTest {
 
     private static final String REDUCTION_KEY = "uei.opennms.org/nodes/nodeDown::1";
 
     private final List<PDEvent> sentEvents = new CopyOnWriteArrayList<>();
+    private final EventForwarder eventForwarder = mock(EventForwarder.class);
     private PagerDutyForwarder forwarder;
 
     @After
@@ -98,13 +110,90 @@ public class PagerDutyForwarderTest {
         assertThat(sentEvents, empty());
     }
 
+    @Test
+    public void forwardsAlarmWithoutNode() throws Exception {
+        forwarder = forwarder("alarm.severity.id >= 6");
+
+        forwarder.handleNewOrUpdatedAlarm(ImmutableAlarm.newBuilder()
+                .setId(5)
+                .setReductionKey("uei.opennms.org/bsm/serviceProblem:5")
+                .setSeverity(Severity.CRITICAL)
+                .setType(AlarmType.PROBLEM)
+                .setLogMessage("Business service problem")
+                .setLastEvent(ImmutableDatabaseEvent.newBuilder()
+                        .setId(5L)
+                        .setUei("uei.opennms.org/bsm/serviceProblem")
+                        .addParameter(ImmutableEventParameter.newBuilder()
+                                .setName("businessServiceName")
+                                .setValue("Networks-AUS")
+                                .build())
+                        .build())
+                .build());
+        awaitSentEvents(1);
+
+        assertThat(sentActions(), contains("TRIGGER"));
+        PDEventPayload payload = sentEvents.get(0).getPayload();
+        assertThat(payload.getSource(), equalTo("unknown"));
+        assertThat(payload.getCustomDetails(), hasEntry("businessServiceName", "Networks-AUS"));
+    }
+
+    @Test
+    public void forwardsAlarmForNodeWithoutIpInterfaces() throws Exception {
+        forwarder = forwarder("alarm.severity.id >= 6");
+
+        forwarder.handleNewOrUpdatedAlarm(ImmutableAlarm.newBuilder()
+                .setId(2)
+                .setReductionKey("uei.opennms.org/nodes/nodeDown::2")
+                .setSeverity(Severity.MAJOR)
+                .setType(AlarmType.PROBLEM)
+                .setLogMessage("Node is down")
+                .setNode(ImmutableNode.newBuilder()
+                        .setId(2)
+                        .setForeignSource("Requisition-A")
+                        .setForeignId("2")
+                        .setLabel("node2")
+                        .setLocation("Default")
+                        .build())
+                .build());
+        awaitSentEvents(1);
+
+        assertThat(sentActions(), contains("TRIGGER"));
+        PDEventPayload payload = sentEvents.get(0).getPayload();
+        assertThat(payload.getCustomDetails(), hasEntry("nodeLabel", "node2"));
+        assertThat(payload.getCustomDetails(), not(hasKey("node_ipAddress")));
+    }
+
+    @Test
+    public void sendsFailedEventWhenPayloadCannotBeBuilt() throws Exception {
+        forwarder = forwarder("alarm.severity.id >= 6");
+
+        // No log message, so building the summary throws
+        forwarder.handleNewOrUpdatedAlarm(ImmutableAlarm.newBuilder()
+                .setId(3)
+                .setReductionKey("uei.opennms.org/nodes/nodeDown::3")
+                .setSeverity(Severity.MAJOR)
+                .setType(AlarmType.PROBLEM)
+                .build());
+
+        ArgumentCaptor<InMemoryEvent> captor = ArgumentCaptor.forClass(InMemoryEvent.class);
+        verify(eventForwarder, timeout(5000)).sendAsync(captor.capture());
+        InMemoryEvent failed = captor.getValue();
+        assertThat(failed.getUei(), equalTo("uei.opennms.org/pagerduty/sendEventFailed"));
+        List<String> params = failed.getParameters().stream()
+                .map(p -> p.getName() + "=" + p.getValue())
+                .collect(Collectors.toList());
+        assertThat(params, hasItem("reductionKey=uei.opennms.org/nodes/nodeDown::3"));
+        assertThat(params, hasItem(startsWith("message=java.lang.NullPointerException")));
+        assertThat(sentEvents, empty());
+    }
+
     private PagerDutyForwarder forwarder(String jexlFilter) {
         PDClient pdClient = mock(PDClient.class);
         when(pdClient.sendEvent(any())).thenAnswer(invocation -> {
             sentEvents.add(invocation.getArgument(0));
             return CompletableFuture.completedFuture(null);
         });
-        return new PagerDutyForwarder(mock(EventForwarder.class), () -> pdClient,
+        return new PagerDutyForwarder(eventForwarder, () -> pdClient,
                 new PagerDutyPluginConfig("OpenNMS", "http://localhost:8980/opennms/alarm/detail.htm?id=%d"),
                 new PagerDutyServiceConfig("test", "routing-key", jexlFilter, Duration.ZERO));
     }
