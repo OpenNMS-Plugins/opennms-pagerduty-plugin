@@ -57,6 +57,8 @@ import org.opennms.integration.api.v1.events.EventForwarder;
 import org.opennms.integration.api.v1.model.Alarm;
 import org.opennms.integration.api.v1.model.DatabaseEvent;
 import org.opennms.integration.api.v1.model.EventParameter;
+import org.opennms.integration.api.v1.model.IpInterface;
+import org.opennms.integration.api.v1.model.Node;
 import org.opennms.integration.api.v1.model.Severity;
 import org.opennms.integration.api.v1.model.immutables.ImmutableEventParameter;
 import org.opennms.integration.api.v1.model.immutables.ImmutableInMemoryEvent;
@@ -162,7 +164,15 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         // We may of previously filtered the alarm, but decided to process it now
         alarmIdsFiltered.remove(alarm.getId());
 
-        PDEvent pdEvent = toEvent(alarm);
+        final PDEvent pdEvent;
+        try {
+            pdEvent = toEvent(alarm);
+        } catch (RuntimeException e) {
+            // Alarmd logs and swallows listener exceptions, so raise the failure event ourselves
+            LOG.warn("Building event for alarm with reduction-key: {} failed.", alarm.getReductionKey(), e);
+            sendFailedEvent(alarm.getReductionKey(), e.toString());
+            return;
+        }
 
         String reductionKey = alarm.getReductionKey();
         switch (pdEvent.getEventAction()) {
@@ -215,28 +225,7 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         pdClient.sendEvent(pdEvent).whenComplete((v, ex) -> {
            if (ex != null) {
                LOG.warn("Sending event for alarm with reduction-key: {} failed.", reductionKey, ex);
-               eventForwarder.sendAsync(ImmutableInMemoryEvent.newBuilder()
-                       .setUei(SEND_EVENT_FAILED_UEI)
-                       .setSource(PagerDutyForwarder.class.getName())
-                       // TODO: The API should make this be less verbose i.e.
-                       // .addParameter("reductionKey", alarm.getReductionKey())
-                       .addParameter(ImmutableEventParameter.newBuilder()
-                               .setName("reductionKey")
-                               .setValue(reductionKey)
-                               .build())
-                       .addParameter(ImmutableEventParameter.newBuilder()
-                               .setName("message")
-                               .setValue(ex.getMessage())
-                               .build())
-                       .addParameter(ImmutableEventParameter.newBuilder()
-                               .setName("routingKey")
-                               .setValue(serviceConfig.getRoutingKey())
-                               .build())
-                       .addParameter(ImmutableEventParameter.newBuilder()
-                               .setName("pid")
-                               .setValue(serviceConfig.getPid())
-                               .build())
-                       .build());
+               sendFailedEvent(reductionKey, ex.getMessage());
            } else {
                LOG.info("Event sent successfully for alarm with reduction-key: {}", reductionKey);
                eventForwarder.sendAsync(ImmutableInMemoryEvent.newBuilder()
@@ -257,6 +246,31 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
                        .build());
            }
         });
+    }
+
+    private void sendFailedEvent(String reductionKey, String message) {
+        eventForwarder.sendAsync(ImmutableInMemoryEvent.newBuilder()
+                .setUei(SEND_EVENT_FAILED_UEI)
+                .setSource(PagerDutyForwarder.class.getName())
+                // TODO: The API should make this be less verbose i.e.
+                // .addParameter("reductionKey", alarm.getReductionKey())
+                .addParameter(ImmutableEventParameter.newBuilder()
+                        .setName("reductionKey")
+                        .setValue(reductionKey)
+                        .build())
+                .addParameter(ImmutableEventParameter.newBuilder()
+                        .setName("message")
+                        .setValue(message)
+                        .build())
+                .addParameter(ImmutableEventParameter.newBuilder()
+                        .setName("routingKey")
+                        .setValue(serviceConfig.getRoutingKey())
+                        .build())
+                .addParameter(ImmutableEventParameter.newBuilder()
+                        .setName("pid")
+                        .setValue(serviceConfig.getPid())
+                        .build())
+                .build());
     }
 
     @Override
@@ -331,17 +345,22 @@ public class PagerDutyForwarder implements AlarmLifecycleListener, Closeable {
         if (dbEvent != null) {
             payload.getCustomDetails().putAll(eparmsToMap(dbEvent.getParameters()));
         }
-        // Add the event's nodelabel to details
-        if (alarm.getNode().getLabel() != null && !payload.getCustomDetails().containsKey("nodeLabel")) {
-            payload.getCustomDetails().put("nodeLabel", alarm.getNode().getLabel());
-        }
-        // Add categories
-        if (alarm.getNode().getCategories() != null && !payload.getCustomDetails().containsKey("node_categories")) {
-            payload.getCustomDetails().put("node_categories", alarm.getNode().getCategories().toString());
-        }
-        //Add the first IP address
-        if (alarm.getNode().getIpInterfaces().get(0).getIpAddress() != null && !payload.getCustomDetails().containsKey("node_ipAddress")) {
-            payload.getCustomDetails().put("node_ipAddress", alarm.getNode().getIpInterfaces().get(0).getIpAddress().toString());
+        final Node node = alarm.getNode();
+        if (node != null) {
+            // Add the event's nodelabel to details
+            if (node.getLabel() != null && !payload.getCustomDetails().containsKey("nodeLabel")) {
+                payload.getCustomDetails().put("nodeLabel", node.getLabel());
+            }
+            // Add categories
+            if (node.getCategories() != null && !payload.getCustomDetails().containsKey("node_categories")) {
+                payload.getCustomDetails().put("node_categories", node.getCategories().toString());
+            }
+            //Add the first IP address
+            final List<IpInterface> ipInterfaces = node.getIpInterfaces();
+            if (ipInterfaces != null && !ipInterfaces.isEmpty() && ipInterfaces.get(0).getIpAddress() != null
+                    && !payload.getCustomDetails().containsKey("node_ipAddress")) {
+                payload.getCustomDetails().put("node_ipAddress", ipInterfaces.get(0).getIpAddress().toString());
+            }
         }
         //Add the entire alarm in its own field, overwriting the existing field if one exists
         mapper.registerModule(new Jdk8Module());
