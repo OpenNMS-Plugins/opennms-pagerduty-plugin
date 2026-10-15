@@ -118,3 +118,14 @@ admin@opennms> property-set jexlFilter 'alarm.node.ipInterfaces[0].ipAddress.toS
 ----
 
 JEXL does not allow access to the methods of `java.net.InetAddress`, so compare its string form instead, which starts with a `/`.
+
+=== Alarms with a given event parameter value
+
+[source, console]
+----
+admin@opennms> property-set jexlFilter '!empty(alarm.lastEvent.getParametersByName("environment")) and alarm.lastEvent.getParametersByName("environment")[0].value == "production"'
+----
+
+This looks up a parameter of the alarm's latest event by name, so the filter does not depend on parameter order.
+`getParametersByName` returns a list, since an event may carry the same parameter more than once; the `!empty(...)` check keeps the expression from failing when the parameter is absent.
+Use `eval-jexl` to see the parameters an alarm's latest event carries.
